@@ -1,6 +1,6 @@
 # stdout
 Pixel art &amp; messages with Github's contribution graph.
-05/19: .
+05/19: ..
 05/18: .
 05/12: .
 05/10: .....
