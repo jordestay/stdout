@@ -1,6 +1,9 @@
 # stdout
 Pixel art &amp; messages with Github's contribution graph.
+<<<<<<< HEAD
 05/28: .
+=======
+>>>>>>> 652b7dc1e88fece45c713dfd2d0554fa804f83e2
 05/27: .
 05/25: .
 05/19: ..
