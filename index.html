@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Contributions Chart Drawer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0;
+      padding: 20px;
+      user-select: none;
+    }
+    h1 { margin-bottom: 20px; }
+    #chart-wrapper {
+      position: relative;
+      margin-top: 28px;
+      margin-left: 44px;
+    }
+    #chart {
+      display: grid;
+      grid-template-columns: repeat(53, 15px);
+      grid-template-rows: repeat(7, 15px);
+      grid-auto-flow: column;
+      gap: 2px;
+    }
+    .cell {
+      width: 15px;
+      height: 15px;
+      background-color: #ebedf0;
+      border: 1px solid #d0d7de;
+      transition: background-color 0.08s;
+      cursor: crosshair;
+      position: relative;
+    }
+    .cell.out-of-year {
+      background-color: #f6f8fa !important;
+      border-color: #e8eaed !important;
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .cell.selected::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border: 2px solid #0969da;
+      border-radius: 1px;
+      pointer-events: none;
+    }
+    #selection-box {
+      position: absolute;
+      border: 1.5px dashed #0969da;
+      background: rgba(9,105,218,0.06);
+      pointer-events: none;
+      display: none;
+      z-index: 10;
+    }
+    #y-axis {
+      position: absolute;
+      left: -44px;
+      top: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .y-label {
+      font-size: 11px;
+      color: #57606a;
+      text-align: right;
+      padding-right: 6px;
+      line-height: 17px;
+      height: 17px;
+    }
+    .y-spacer { height: 17px; }
+    #x-axis {
+      position: absolute;
+      top: -20px;
+      left: 0;
+      width: 100%;
+      height: 18px;
+    }
+    .x-label {
+      position: absolute;
+      font-size: 11px;
+      color: #57606a;
+      white-space: nowrap;
+    }
+    .toolbar {
+      margin-top: 24px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .toolbar button {
+      padding: 8px 18px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .toolbar button.active { background-color: #0056b3; }
+    .toolbar button:disabled { opacity: 0.45; cursor: default; }
+    .export-btn { background-color: #28a745 !important; }
+    .export-btn:hover { background-color: #1e7e34 !important; }
+    #palette-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: opacity 0.2s;
+    }
+    #palette-wrap.inactive {
+      opacity: 0.3;
+      pointer-events: none;
+    }
+    #palette-label { font-size: 13px; color: #333; }
+    .swatch {
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 2px;
+      transition: transform 0.1s, box-shadow 0.1s;
+      flex-shrink: 0;
+    }
+    .swatch.current-color {
+      border: 2px solid #0969da;
+      box-shadow: 0 0 0 1px #0969da;
+      transform: scale(1.25);
+    }
+    .divider { width: 1px; height: 28px; background: #ddd; margin: 0 4px; }
+    .year-control { display: flex; align-items: center; gap: 6px; }
+    .year-control label { font-size: 13px; color: #333; }
+    .year-control input {
+      width: 72px; padding: 5px 6px;
+      border: 1px solid #ccc; border-radius: 4px;
+      font-size: 13px; text-align: center;
+    }
+    #status-bar { margin-top: 10px; font-size: 11px; color: #57606a; height: 16px; }
+    #hint-bar { margin-top: 4px; font-size: 11px; color: #8c959f; text-align: center; line-height: 1.7; }
+  </style>
+</head>
+<body>
+  <h1>GitHub Contributions Chart Drawer</h1>
+  <div id="chart-wrapper">
+    <div id="y-axis"></div>
+    <div id="x-axis"></div>
+    <div id="chart"></div>
+    <div id="selection-box"></div>
+  </div>
+  <div class="toolbar">
+    <button id="pencil-btn" class="active">✏️ Pencil</button>
+    <button id="pen-btn">🖊️ Pen</button>
+    <button id="eraser-btn">🧹 Eraser</button>
+    <div class="divider"></div>
+    <div id="palette-wrap" class="inactive">
+      <span id="palette-label">Color:</span>
+    </div>
+    <div class="divider"></div>
+    <div class="year-control">
+      <label for="year-input">Year:</label>
+      <input type="number" id="year-input" min="1970" max="9999" />
+    </div>
+    <button id="export-btn" class="export-btn">⬇ Export JSON</button>
+  </div>
+  <div id="status-bar"></div>
+  <div id="hint-bar">
+    <b>Pencil</b>: darkens each pass &nbsp;|&nbsp;
+    <b>Pen</b>: stamps color; drag to paint &nbsp;|&nbsp;
+    <b>Shift+drag</b> or <b>Ctrl+click</b>: select region, then pick color or scroll to adjust intensity<br>
+    <b>Ctrl+A</b>: select all &nbsp;|&nbsp; Click elsewhere to commit &nbsp;|&nbsp; <b>Esc</b>: cancel &nbsp;|&nbsp; <b>Alt</b>: eraser &nbsp;|&nbsp; <b>Ctrl+Z/Y</b>: undo/redo
+  </div>
+
+  <script>
+    const COLS = 53, ROWS = 7, STEP = 17, MIN_YEAR = 1970;
+    const COLORS = ["#ebedf0","#d6e77f","#8ac760","#3fa43a","#19691e"];
+    const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    let currentTool     = "pencil";
+    let penColorIdx     = 1;
+    let prevTool        = "pencil";
+    let isMouseDown     = false;
+
+    // Selection: Map<cell, originalColorIdx>
+    let selection       = new Map();
+    let hasSelection    = false;
+
+    // Shift-drag state
+    let isShiftDragging = false;
+    let shiftDragStart  = null;
+
+    // Ctrl+click accumulation — selection stays open until user clicks elsewhere
+    let isCtrlSelecting = false;
+
+    const undoStack = [], redoStack = [];
+    const MAX_UNDO = 50;
+
+    // ── Elements ──────────────────────────────────────────────────────────────
+    const chartEl      = document.getElementById("chart");
+    const xAxisEl      = document.getElementById("x-axis");
+    const yAxisEl      = document.getElementById("y-axis");
+    const pencilBtn    = document.getElementById("pencil-btn");
+    const penBtn       = document.getElementById("pen-btn");
+    const eraserBtn    = document.getElementById("eraser-btn");
+    const exportBtn    = document.getElementById("export-btn");
+    const yearInput    = document.getElementById("year-input");
+    const paletteWrap  = document.getElementById("palette-wrap");
+    const statusBar    = document.getElementById("status-bar");
+    const selectionBox = document.getElementById("selection-box");
+
+    // ── Palette ───────────────────────────────────────────────────────────────
+    const swatchEls = [];
+    COLORS.forEach((color, idx) => {
+      const s = document.createElement("div");
+      s.className = "swatch";
+      s.style.background = color;
+      s.title = idx === 0 ? "Clear" : `Intensity ${idx}`;
+      s.addEventListener("click", () => {
+        setPenColor(idx);
+        if (hasSelection) applyPreview();
+      });
+      paletteWrap.appendChild(s);
+      swatchEls.push(s);
+    });
+
+    function setPenColor(idx) {
+      penColorIdx = Math.max(0, Math.min(COLORS.length - 1, idx));
+      swatchEls.forEach((s, i) => s.classList.toggle("current-color", i === penColorIdx));
+    }
+    setPenColor(1);
+
+    // ── Y-axis ────────────────────────────────────────────────────────────────
+    ["","Mon","","Wed","","Fri",""].forEach(label => {
+      const el = document.createElement("div");
+      el.className = label ? "y-label" : "y-spacer";
+      if (label) el.textContent = label;
+      yAxisEl.appendChild(el);
+    });
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function getFirstSunday(year) {
+      const jan1 = new Date(year, 0, 1);
+      const sun  = new Date(jan1);
+      sun.setDate(jan1.getDate() - jan1.getDay());
+      return sun;
+    }
+    function cellIndexToDate(idx, year) {
+      const col = Math.floor(idx / ROWS), row = idx % ROWS;
+      const sun = getFirstSunday(year);
+      const d   = new Date(sun);
+      d.setDate(sun.getDate() + col * ROWS + row);
+      return d;
+    }
+    function padTwo(n) { return String(n).padStart(2, "0"); }
+    function formatDate(d) { return `${d.getFullYear()}-${padTwo(d.getMonth()+1)}-${padTwo(d.getDate())}`; }
+    function cellToColRow(cell) {
+      const idx = parseInt(cell.dataset.idx, 10);
+      return { col: Math.floor(idx / ROWS), row: idx % ROWS };
+    }
+    function getRealColor(cell) { return parseInt(cell.dataset.colorIndex, 10); }
+
+    // ── Grid ──────────────────────────────────────────────────────────────────
+    function buildGrid(year) {
+      chartEl.innerHTML = "";
+      hardCancelSelection();
+      for (let i = 0; i < COLS * ROWS; i++) {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.dataset.colorIndex = 0;
+        cell.dataset.idx = i;
+        const d = cellIndexToDate(i, year);
+        if (d.getFullYear() !== year) {
+          cell.classList.add("out-of-year");
+          cell.title = "Outside " + year;
+        } else {
+          cell.title = formatDate(d);
+        }
+        cell.addEventListener("mouseover", onCellMouseOver);
+        chartEl.appendChild(cell);
+      }
+    }
+
+    function buildXAxis(year) {
+      xAxisEl.innerHTML = "";
+      const firstSun = getFirstSunday(year);
+      for (let m = 0; m < 12; m++) {
+        const firstOfMonth = new Date(year, m, 1);
+        const diff = Math.round((firstOfMonth - firstSun) / 86400000);
+        const col  = Math.floor(diff / ROWS);
+        if (col < 0 || col >= COLS) continue;
+        const label = document.createElement("span");
+        label.className = "x-label";
+        label.textContent = MONTHS[m];
+        label.style.left = (col * STEP) + "px";
+        xAxisEl.appendChild(label);
+      }
+    }
+
+    function applyYear(year) {
+      if (isNaN(year) || year < MIN_YEAR) { yearInput.value = MIN_YEAR; year = MIN_YEAR; }
+      undoStack.length = 0; redoStack.length = 0;
+      buildGrid(year); buildXAxis(year);
+    }
+
+    yearInput.value = new Date().getFullYear();
+    applyYear(parseInt(yearInput.value, 10));
+    yearInput.addEventListener("change", () => applyYear(parseInt(yearInput.value, 10)));
+
+    // ── Tool ──────────────────────────────────────────────────────────────────
+    function setTool(tool) {
+      if (currentTool === "pen" && tool !== "pen") hardCancelSelection();
+      currentTool = tool;
+      pencilBtn.classList.toggle("active", tool === "pencil");
+      penBtn.classList.toggle("active",    tool === "pen");
+      eraserBtn.classList.toggle("active", tool === "eraser");
+      paletteWrap.classList.toggle("inactive", tool !== "pen");
+    }
+    pencilBtn.addEventListener("click", () => { prevTool = "pencil"; setTool("pencil"); });
+    penBtn.addEventListener("click",    () => { prevTool = "pen";    setTool("pen");    });
+    eraserBtn.addEventListener("click", () => setTool("eraser"));
+
+    // ── Mouse global ──────────────────────────────────────────────────────────
+    document.body.addEventListener("mousedown", e => { if (e.button === 0) isMouseDown = true; });
+    document.body.addEventListener("mouseup",   () => {
+      isMouseDown = false;
+      if (isShiftDragging) finishShiftDrag();
+    });
+    document.body.addEventListener("dragstart", e => e.preventDefault());
+
+    // ── Chart mousedown ───────────────────────────────────────────────────────
+    chartEl.addEventListener("mousedown", e => {
+      const cell = e.target;
+      if (!cell.classList.contains("cell") || cell.classList.contains("out-of-year")) return;
+
+      if (currentTool === "pen") {
+        if (e.shiftKey) {
+          // Begin rubber-band
+          isShiftDragging = true;
+          shiftDragStart  = cellToColRow(cell);
+          selectionBox.style.display = "block";
+          addToSelection([cell]);
+          e.preventDefault();
+
+        } else if (e.ctrlKey || e.metaKey) {
+          // Toggle individual cell
+          toggleCell(cell);
+          e.preventDefault();
+
+        } else {
+          // Plain pen click/drag
+          if (hasSelection) {
+            if (selection.has(cell)) {
+              // clicked inside selection — do nothing, let them drag or pick color
+            } else {
+              // clicked outside selection — commit then start painting
+              commitSelection();
+              penPaint(cell);
+            }
+          } else {
+            penPaint(cell);
+          }
+        }
+      } else {
+        // Pencil / eraser — commit any lingering selection first
+        if (hasSelection) commitSelection();
+        interact(cell);
+      }
+    });
+
+    // ── Cell mouseover ────────────────────────────────────────────────────────
+    function onCellMouseOver(e) {
+      const cell = e.target;
+      if (!isMouseDown || cell.classList.contains("out-of-year")) return;
+
+      if (isShiftDragging) {
+        updateRubberBand(shiftDragStart, cellToColRow(cell));
+      } else if (currentTool === "pen" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        // Plain pen drag — only if no active selection (or dragging outside it)
+        if (!hasSelection) penPaint(cell);
+      } else if (currentTool !== "pen") {
+        interact(cell);
+      }
+    }
+
+    // ── Pen paint (single cell, immediate) ───────────────────────────────────
+    function penPaint(cell) {
+      const cur = getRealColor(cell);
+      if (cur === penColorIdx) return;
+      saveAction({ type: "cell", cell, from: cur, to: penColorIdx });
+      applyColorRaw(cell, penColorIdx);
+    }
+
+    // ── Rubber-band ───────────────────────────────────────────────────────────
+    function updateRubberBand(start, end) {
+      const minCol = Math.min(start.col, end.col), maxCol = Math.max(start.col, end.col);
+      const minRow = Math.min(start.row, end.row), maxRow = Math.max(start.row, end.row);
+
+      selectionBox.style.left   = (minCol * STEP) + "px";
+      selectionBox.style.top    = (minRow * STEP) + "px";
+      selectionBox.style.width  = ((maxCol - minCol + 1) * STEP - 2) + "px";
+      selectionBox.style.height = ((maxRow - minRow + 1) * STEP - 2) + "px";
+
+      const cells = Array.from(chartEl.children).filter(c => {
+        if (c.classList.contains("out-of-year")) return false;
+        const { col, row } = cellToColRow(c);
+        return col >= minCol && col <= maxCol && row >= minRow && row <= maxRow;
+      });
+      replaceSelection(cells);
+    }
+
+    function finishShiftDrag() {
+      isShiftDragging = false;
+      selectionBox.style.display = "none";
+      // Selection stays open — user commits by clicking elsewhere or Esc
+    }
+
+    // ── Selection management ──────────────────────────────────────────────────
+    // Replace entire selection with a new set of cells
+    function replaceSelection(cells) {
+      // Restore cells being removed
+      selection.forEach((origIdx, cell) => {
+        if (!cells.includes(cell)) {
+          applyColorRaw(cell, origIdx);
+          cell.classList.remove("selected");
+        }
+      });
+      const newSel = new Map();
+      cells.forEach(cell => {
+        const orig = selection.has(cell) ? selection.get(cell) : getRealColor(cell);
+        newSel.set(cell, orig);
+        cell.classList.add("selected");
+      });
+      selection = newSel;
+      hasSelection = selection.size > 0;
+      applyPreview();
+      updateStatus();
+    }
+
+    // Add cells to existing selection
+    function addToSelection(cells) {
+      cells.forEach(cell => {
+        if (!selection.has(cell)) {
+          selection.set(cell, getRealColor(cell));
+        }
+        cell.classList.add("selected");
+      });
+      hasSelection = selection.size > 0;
+      applyPreview();
+      updateStatus();
+    }
+
+    // Toggle a single cell
+    function toggleCell(cell) {
+      if (selection.has(cell)) {
+        applyColorRaw(cell, selection.get(cell));
+        cell.classList.remove("selected");
+        selection.delete(cell);
+      } else {
+        selection.set(cell, getRealColor(cell));
+        cell.classList.add("selected");
+        applyColorRaw(cell, penColorIdx); // immediate preview
+      }
+      hasSelection = selection.size > 0;
+      updateStatus();
+    }
+
+    // Preview pen color on all selected cells (visual only)
+    function applyPreview() {
+      selection.forEach((_, cell) => {
+        cell.style.backgroundColor = COLORS[penColorIdx];
+      });
+    }
+
+    // Commit — write pen color into dataset for all selected cells
+    function commitSelection() {
+      if (!hasSelection) return;
+      const prev = [];
+      selection.forEach((origIdx, cell) => {
+        prev.push({ cell, from: origIdx, to: penColorIdx });
+        cell.dataset.colorIndex = penColorIdx;
+        cell.classList.remove("selected");
+      });
+      if (prev.some(p => p.from !== p.to)) saveAction({ type: "fill", prev });
+      selection = new Map();
+      hasSelection = false;
+      updateStatus();
+    }
+
+    // Cancel — revert previews
+    function hardCancelSelection() {
+      selection.forEach((origIdx, cell) => {
+        applyColorRaw(cell, origIdx);
+        cell.classList.remove("selected");
+      });
+      selection = new Map();
+      hasSelection = false;
+      isShiftDragging = false;
+      selectionBox.style.display = "none";
+      updateStatus();
+    }
+
+    function updateStatus() {
+      const n = selection.size;
+      statusBar.textContent = n > 0
+        ? `${n} cell${n > 1 ? "s" : ""} selected — scroll to adjust intensity, pick palette color, or click elsewhere to commit`
+        : "";
+    }
+
+    // applyColorRaw — sets both style and dataset
+    function applyColorRaw(cell, idx) {
+      cell.dataset.colorIndex = idx;
+      cell.style.backgroundColor = COLORS[idx];
+    }
+
+    // ── Pencil / eraser interaction ───────────────────────────────────────────
+    function interact(cell) {
+      if (cell.classList.contains("out-of-year")) return;
+      const cur = getRealColor(cell);
+      let next = cur;
+      if (currentTool === "pencil") next = Math.min(cur + 1, COLORS.length - 1);
+      else if (currentTool === "eraser" && cur > 0) next = cur - 1;
+      if (next !== cur) {
+        saveAction({ type: "cell", cell, from: cur, to: next });
+        applyColorRaw(cell, next);
+      }
+    }
+
+    // ── Ctrl+A ────────────────────────────────────────────────────────────────
+    function selectAll() {
+      if (currentTool !== "pen") setTool("pen");
+      const cells = Array.from(chartEl.children).filter(c => !c.classList.contains("out-of-year"));
+      replaceSelection(cells);
+    }
+
+    // ── Undo / Redo ───────────────────────────────────────────────────────────
+    function saveAction(action) {
+      if (undoStack.length >= MAX_UNDO) undoStack.shift();
+      undoStack.push(action);
+      redoStack.length = 0;
+    }
+    function undo() {
+      if (!undoStack.length) return;
+      hardCancelSelection();
+      const a = undoStack.pop();
+      if (a.type === "fill") a.prev.forEach(({ cell, from }) => applyColorRaw(cell, from));
+      else applyColorRaw(a.cell, a.from);
+      redoStack.push(a);
+    }
+    function redo() {
+      if (!redoStack.length) return;
+      hardCancelSelection();
+      const a = redoStack.pop();
+      if (a.type === "fill") a.prev.forEach(({ cell, to }) => applyColorRaw(cell, to));
+      else applyColorRaw(a.cell, a.to);
+      undoStack.push(a);
+    }
+
+    // ── Keyboard ──────────────────────────────────────────────────────────────
+    document.body.addEventListener("keydown", e => {
+      if ((e.ctrlKey||e.metaKey) && e.key === "z")                              { undo(); e.preventDefault(); }
+      else if ((e.ctrlKey||e.metaKey) && (e.key==="y"||(e.shiftKey&&e.key==="Z"))) { redo(); e.preventDefault(); }
+      else if ((e.ctrlKey||e.metaKey) && e.key === "a")                         { selectAll(); e.preventDefault(); }
+      else if (e.key === "Escape")  { hardCancelSelection(); }
+      else if (e.key === "Alt")     { e.preventDefault(); prevTool = currentTool; setTool("eraser"); }
+    });
+    document.body.addEventListener("keyup", e => {
+      if (e.key === "Alt") setTool(prevTool);
+    });
+
+    // ── Scroll — pen color OR relative intensity on selection ─────────────────
+    chartEl.addEventListener("wheel", e => {
+      e.preventDefault();
+      if (currentTool !== "pen") return;
+      const delta = e.deltaY > 0 ? 1 : -1;
+
+      if (hasSelection) {
+        // Relative intensity: step each cell's ORIGINAL color up/down
+        // and re-preview. We adjust the stored originals so repeated
+        // scrolls accumulate correctly.
+        selection.forEach((origIdx, cell) => {
+          const next = Math.max(0, Math.min(COLORS.length - 1, origIdx + delta));
+          selection.set(cell, next);
+          cell.style.backgroundColor = COLORS[next];
+          // Keep dataset in sync with preview so commit writes the right value
+          cell.dataset.colorIndex = next;
+        });
+        // Sync pen color indicator to the most common resulting value
+        const vals = Array.from(selection.values());
+        setPenColor(vals[Math.floor(vals.length / 2)]);
+      } else {
+        // No selection — just change pen color
+        setPenColor(penColorIdx + delta);
+      }
+    }, { passive: false });
+
+    // ── Export ────────────────────────────────────────────────────────────────
+    exportBtn.addEventListener("click", () => {
+      const year = parseInt(yearInput.value, 10);
+      if (isNaN(year) || year < MIN_YEAR) { alert(`Year must be ${MIN_YEAR} or later.`); return; }
+      const entries = [];
+      Array.from(chartEl.children).forEach((cell, i) => {
+        if (cell.classList.contains("out-of-year")) return;
+        const intensity = getRealColor(cell);
+        if (intensity === 0) return;
+        entries.push({ date: formatDate(cellIndexToDate(i, year)), intensity });
+      });
+      if (!entries.length) { alert("Nothing drawn yet!"); return; }
+      entries.sort((a, b) => a.date.localeCompare(b.date));
+      const blob = new Blob([JSON.stringify(entries, null, 2)], { type: "application/json" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url; a.download = `contributions-${year}.json`; a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
